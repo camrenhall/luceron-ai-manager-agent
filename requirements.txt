@@ -1,21 +1,8 @@
-# Luceron AI Manager Agent - MVP Dependencies
-# Core framework
-fastapi
-uvicorn[standard]
-
-# HTTP client for inter-agent communication
-httpx
-
-# Data validation and serialization
-pydantic
-
-# AI framework and provider (for Week 2)
-langchain
-langchain-anthropic
-langchain-core
-
-# Environment management
-python-dotenv
-
-# Production monitoring (Week 3)
-psutil
+# Luceron AI Manager Agent - Core Dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+httpx==0.25.0
+pydantic==2.5.0
+langchain==0.1.0
+langchain-anthropic==0.1.0
+langchain-core==0.1.0
