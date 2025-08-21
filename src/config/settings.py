@@ -12,7 +12,7 @@ class Settings:
     def __init__(self):
         """Initialize settings from environment variables."""
         # Service Configuration
-        self.MANAGER_PORT = int(os.getenv("PORT", os.getenv("MANAGER_PORT", 8081)))
+        self.PORT = int(os.getenv("PORT", 8080))
         self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
         
         # Agent URLs
