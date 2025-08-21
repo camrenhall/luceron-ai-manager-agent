@@ -52,6 +52,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Copy application files
 COPY main.py .
 COPY prompts/ prompts/
+COPY src/ src/
 
 # Set ownership and switch to non-root user
 RUN chown -R agent:agent /app
