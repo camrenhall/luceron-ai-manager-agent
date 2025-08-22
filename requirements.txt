@@ -6,3 +6,6 @@ pydantic
 langchain
 langchain-anthropic
 langchain-core
+cryptography
+PyJWT
+requests

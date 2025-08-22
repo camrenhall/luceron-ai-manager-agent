@@ -3,7 +3,7 @@ Configuration management for the Luceron AI Manager Agent.
 Centralizes environment variable handling and application settings.
 """
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 class Settings:
@@ -21,7 +21,12 @@ class Settings:
         
         # Backend Configuration
         self.BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8080")
-        self.BACKEND_API_KEY = os.getenv("BACKEND_API_KEY")
+        
+        # OAuth2 configuration - private key from environment, service details static
+        self.MANAGER_AGENT_PRIVATE_KEY = os.getenv("MANAGER_AGENT_PRIVATE_KEY")
+        
+        # Static Luceron service configuration
+        self.LUCERON_SERVICE_ID = "luceron_ai_manager_agent"
         
         # AI Configuration
         self.ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -44,12 +49,27 @@ class Settings:
         # Validate required settings
         self._validate_required_settings()
     
+    def get_luceron_config(self) -> Optional[Dict[str, Any]]:
+        """
+        Get Luceron OAuth2 configuration with private key from environment
+        
+        Returns:
+            Configuration dictionary or None if private key not available
+        """
+        if not self.MANAGER_AGENT_PRIVATE_KEY:
+            return None
+            
+        return {
+            'service_id': self.LUCERON_SERVICE_ID,
+            'private_key': self.MANAGER_AGENT_PRIVATE_KEY,
+            'base_url': self.BACKEND_URL
+        }
+    
     def _validate_required_settings(self):
         """Validate that required environment variables are set."""
         required_vars = [
             ("ANTHROPIC_API_KEY", self.ANTHROPIC_API_KEY),
             ("BACKEND_URL", self.BACKEND_URL),
-            ("BACKEND_API_KEY", self.BACKEND_API_KEY),
         ]
         
         for var_name, var_value in required_vars:
@@ -64,3 +84,13 @@ class Settings:
 
 # Global settings instance
 settings = Settings()
+
+
+def get_luceron_config() -> Optional[Dict[str, Any]]:
+    """
+    Get Luceron OAuth2 configuration with private key from environment
+    
+    Returns:
+        Configuration dictionary or None if private key not available
+    """
+    return settings.get_luceron_config()
