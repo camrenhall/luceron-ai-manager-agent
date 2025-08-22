@@ -4,7 +4,8 @@ Defines Pydantic models for API communication and validation.
 """
 import re
 import json
-from typing import Optional, Dict, Any
+from datetime import datetime
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, validator
 
 
@@ -93,3 +94,35 @@ class AgentTaskResponse(BaseModel):
     status: str = Field(..., description="Task status")
     execution_time: float
     context_updates: Dict[str, Any] = Field(default_factory=dict)
+
+
+# SSE Response Models for Chat Endpoint
+
+class AgentResponseEvent(BaseModel):
+    """Model for successful agent response events via SSE."""
+    
+    type: str = Field(default="agent_response", description="Event type identifier")
+    response: str = Field(..., description="Agent's text response")
+    conversation_id: str = Field(..., description="UUID for conversation tracking")
+    timestamp: Optional[str] = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="ISO 8601 timestamp")
+    case_id: Optional[str] = Field(None, description="Associated case ID if applicable")
+    has_context: Optional[bool] = Field(False, description="Whether response includes context")
+    context_keys: Optional[List[str]] = Field(default_factory=list, description="Keys of context data used")
+    metrics: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Performance and usage metrics")
+
+
+class AgentErrorEvent(BaseModel):
+    """Model for agent error events via SSE."""
+    
+    type: str = Field(default="agent_error", description="Event type identifier")
+    error_message: str = Field(..., description="Error description")
+    timestamp: Optional[str] = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="ISO 8601 timestamp")
+    error_type: Optional[str] = Field("general", description="Classification of error")
+    recovery_suggestion: Optional[str] = Field(None, description="Suggested recovery action")
+
+
+class GeneralErrorEvent(BaseModel):
+    """Model for general error events via SSE."""
+    
+    type: str = Field(default="error", description="Event type identifier")
+    message: str = Field(..., description="Error description")

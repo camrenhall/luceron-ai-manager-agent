@@ -1,11 +1,16 @@
 """
 Chat and agent communication routes for the Luceron AI Manager Agent.
 """
+import json
 import time
 import uuid
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 
-from ..models.requests import ChatRequest, ChatResponse, AgentTaskRequest, AgentTaskResponse
+from ..models.requests import (
+    ChatRequest, ChatResponse, AgentTaskRequest, AgentTaskResponse,
+    AgentResponseEvent, AgentErrorEvent, GeneralErrorEvent
+)
 from ..agents.manager import create_manager_agent
 from ..agents.client import AgentClient
 from ..config.settings import settings
@@ -19,9 +24,13 @@ manager_agent = create_manager_agent()
 communications_client = AgentClient("communications", settings.COMMUNICATIONS_AGENT_URL)
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """Primary chat interface with intelligent LLM-based agent orchestration."""
+def format_sse_event(data: dict, event_type: str = "message") -> str:
+    """Format data as Server-Sent Event."""
+    return f"data: {json.dumps(data)}\n\n"
+
+
+async def generate_chat_response(request: ChatRequest):
+    """Generate streaming chat response using SSE format."""
     start_time = time.time()
     
     # Generate conversation ID if not provided
@@ -38,14 +47,21 @@ async def chat(request: ChatRequest):
         response_text = result.get("output", "No response generated")
         execution_time = time.time() - start_time
         
-        return ChatResponse(
+        # Create successful response event
+        response_event = AgentResponseEvent(
             response=response_text,
             conversation_id=conversation_id,
-            agent_used="llm-orchestrator",
-            execution_time=execution_time
+            has_context=True,
+            context_keys=["llm-orchestrator"],
+            metrics={
+                "agent_used": "llm-orchestrator",
+                "execution_time": execution_time
+            }
         )
         
-    except Exception:
+        yield format_sse_event(response_event.dict())
+        
+    except Exception as primary_error:
         # Fallback to simple delegation if LLM orchestration fails
         try:
             task_request = AgentTaskRequest(
@@ -59,22 +75,49 @@ async def chat(request: ChatRequest):
             agent_response = await communications_client.delegate_task(task_request)
             execution_time = time.time() - start_time
             
-            return ChatResponse(
+            # Create fallback response event
+            response_event = AgentResponseEvent(
                 response=f"[Fallback Mode] {agent_response.response}",
                 conversation_id=conversation_id,
-                agent_used="fallback-communications",
-                execution_time=execution_time
+                has_context=True,
+                context_keys=["fallback-communications"],
+                metrics={
+                    "agent_used": "fallback-communications",
+                    "execution_time": execution_time,
+                    "fallback_reason": "llm_orchestration_failed"
+                }
             )
             
-        except Exception:
+            yield format_sse_event(response_event.dict())
+            
+        except Exception as fallback_error:
             execution_time = time.time() - start_time
             
-            return ChatResponse(
-                response=f"I'm experiencing technical difficulties. Your request was: {request.message[:100]}...",
-                conversation_id=conversation_id,
-                agent_used="error-fallback",
-                execution_time=execution_time
+            # Create error response event
+            error_event = AgentErrorEvent(
+                error_message=f"I'm experiencing technical difficulties. Your request was: {request.message[:100]}...",
+                error_type="system_failure",
+                recovery_suggestion="Please try again in a few moments. If the problem persists, contact support."
             )
+            
+            yield format_sse_event(error_event.dict())
+
+
+@router.post("/chat")
+async def chat(request: ChatRequest):
+    """Primary chat interface with intelligent LLM-based agent orchestration via SSE."""
+    return StreamingResponse(
+        generate_chat_response(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "https://simple-s3-upload.onrender.com",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization"
+        }
+    )
 
 
 @router.post("/agent/task", response_model=AgentTaskResponse)
