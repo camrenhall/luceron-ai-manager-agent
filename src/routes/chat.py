@@ -2,6 +2,7 @@
 Chat and agent communication routes for the Luceron AI Manager Agent.
 """
 import json
+import logging
 import time
 import uuid
 from fastapi import APIRouter
@@ -12,16 +13,11 @@ from ..models.requests import (
     AgentResponseEvent, AgentErrorEvent, GeneralErrorEvent
 )
 from ..agents.manager import create_manager_agent
-from ..agents.client import AgentClient
-from ..config.settings import settings
 
 router = APIRouter()
 
 # Initialize manager agent
 manager_agent = create_manager_agent()
-
-# Initialize fallback client
-communications_client = AgentClient("communications", settings.COMMUNICATIONS_AGENT_URL)
 
 
 def format_sse_event(data: dict, event_type: str = "message") -> str:
@@ -31,23 +27,39 @@ def format_sse_event(data: dict, event_type: str = "message") -> str:
 
 async def generate_chat_response(request: ChatRequest):
     """Generate streaming chat response using SSE format."""
+    logger = logging.getLogger(__name__)
     start_time = time.time()
     
     # Generate conversation ID if not provided
     conversation_id = request.conversation_id or str(uuid.uuid4())
     
+    logger.info(f"Starting chat request - conversation_id: {conversation_id}, message: {request.message[:100]}...")
+    
     try:
+        logger.info("Invoking LangChain manager agent...")
         # Use LangChain Manager Agent for intelligent orchestration
         result = await manager_agent.ainvoke({
             "input": request.message,
             "conversation_id": conversation_id
         })
         
-        # Extract the final response
-        response_text = result.get("output", "No response generated")
+        logger.info(f"LangChain agent completed. Result type: {type(result)}, Result: {result}")
+        
+        # Extract the final response - handle LangChain response format
+        if isinstance(result, dict) and "output" in result:
+            response_text = result["output"]
+        elif isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
+            # Handle format like [{'text': '...', 'type': 'text', 'index': 0}]
+            response_text = result[0].get("text", "No response generated")
+        else:
+            response_text = str(result)
+        
+        logger.info(f"Extracted response text: {response_text[:200]}...")
+        
         execution_time = time.time() - start_time
         
         # Create successful response event
+        logger.info("Creating AgentResponseEvent...")
         response_event = AgentResponseEvent(
             response=response_text,
             conversation_id=conversation_id,
@@ -59,48 +71,25 @@ async def generate_chat_response(request: ChatRequest):
             }
         )
         
-        yield format_sse_event(response_event.dict())
+        logger.info("Formatting SSE event...")
+        sse_data = format_sse_event(response_event.dict())
+        logger.info(f"SSE event formatted: {sse_data[:200]}...")
         
-    except Exception as primary_error:
-        # Fallback to simple delegation if LLM orchestration fails
-        try:
-            task_request = AgentTaskRequest(
-                task_id=str(uuid.uuid4()),
-                conversation_id=conversation_id,
-                message=request.message,
-                context={},
-                priority="normal"
-            )
-            
-            agent_response = await communications_client.delegate_task(task_request)
-            execution_time = time.time() - start_time
-            
-            # Create fallback response event
-            response_event = AgentResponseEvent(
-                response=f"[Fallback Mode] {agent_response.response}",
-                conversation_id=conversation_id,
-                has_context=True,
-                context_keys=["fallback-communications"],
-                metrics={
-                    "agent_used": "fallback-communications",
-                    "execution_time": execution_time,
-                    "fallback_reason": "llm_orchestration_failed"
-                }
-            )
-            
-            yield format_sse_event(response_event.dict())
-            
-        except Exception as fallback_error:
-            execution_time = time.time() - start_time
-            
-            # Create error response event
-            error_event = AgentErrorEvent(
-                error_message=f"I'm experiencing technical difficulties. Your request was: {request.message[:100]}...",
-                error_type="system_failure",
-                recovery_suggestion="Please try again in a few moments. If the problem persists, contact support."
-            )
-            
-            yield format_sse_event(error_event.dict())
+        yield sse_data
+        logger.info("Successfully yielded SSE response")
+        
+    except Exception as error:
+        execution_time = time.time() - start_time
+        logger.error(f"Manager agent failed after {execution_time}s: {str(error)}", exc_info=True)
+        
+        # Fail hard as requested - no fallback logic
+        error_event = AgentErrorEvent(
+            error_message=f"Manager agent failed: {str(error)}",
+            error_type="agent_failure",
+            recovery_suggestion="Check agent configuration and try again."
+        )
+        
+        yield format_sse_event(error_event.dict())
 
 
 @router.post("/chat")
