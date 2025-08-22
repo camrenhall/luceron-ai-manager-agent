@@ -47,7 +47,12 @@ async def generate_chat_response(request: ChatRequest):
         
         # Extract the final response - handle LangChain response format
         if isinstance(result, dict) and "output" in result:
-            response_text = result["output"]
+            output = result["output"]
+            if isinstance(output, list) and len(output) > 0 and isinstance(output[0], dict):
+                # Handle format like {'output': [{'text': '...', 'type': 'text', 'index': 0}]}
+                response_text = output[0].get("text", "No response generated")
+            else:
+                response_text = str(output)
         elif isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
             # Handle format like [{'text': '...', 'type': 'text', 'index': 0}]
             response_text = result[0].get("text", "No response generated")
